@@ -1,0 +1,818 @@
+{
+  "datasets": [
+    {
+      "name": "58129dcd",
+      "displayName": "dim_branches",
+      "config": {
+        "version": "1.1",
+        "source": "datastore.gold.dim_branches",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ]
+      }
+    },
+    {
+      "name": "f20a078f",
+      "displayName": "dim_customers",
+      "config": {
+        "version": "1.1",
+        "source": "datastore.gold.dim_customers",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a40820de",
+      "displayName": "dim_products",
+      "config": {
+        "version": "1.1",
+        "source": "datastore.gold.dim_products",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ]
+      }
+    },
+    {
+      "name": "4261c169",
+      "displayName": "fact_transactions",
+      "config": {
+        "version": "1.1",
+        "source": "datastore.gold.fact_transactions",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "top5_cust_netvol",
+      "displayName": "Top 5 Customers by Net Transaction Volume",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  dc.CUSTOMER_NAME AS customer_name,\n  SUM(CASE WHEN ft.STD_IS_REFUND = true THEN -ft.PARSED_AMOUNT ELSE ft.PARSED_AMOUNT END) AS net_volume,\n  COUNT(*) AS txn_count\nFROM datastore.gold.fact_transactions ft LEFT JOIN datastore.gold.dim_customers dc ON ft.CUSTOMER_LHID = dc.LHID WHERE ft.PARSED_AMOUNT IS NOT NULL AND dc.CUSTOMER_NAME IS NOT NULL GROUP BY dc.CUSTOMER_NAME ORDER BY net_volume DESC, txn_count DESC LIMIT 5\n",
+        "dimensions": [
+          {
+            "name": "customer_name",
+            "expr": "customer_name",
+            "displayName": "Customer Name"
+          }
+        ],
+        "measures": [
+          {
+            "name": "net_volume",
+            "expr": "SUM(net_volume)",
+            "displayName": "Net Transaction Volume",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "txn_count",
+            "expr": "SUM(txn_count)",
+            "displayName": "Transaction Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "dormant_accts",
+      "displayName": "Dormant Inactive Accounts",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  dc.CUSTOMER_NAME AS customer_name,\n  dc.ACCOUNT_ID AS account_id,\n  dc.LHID AS customer_lhid,\n  lt.last_txn_date,\n  CASE\n    WHEN lt.last_txn_date IS NULL THEN 9999\n    ELSE DATEDIFF(CURRENT_DATE(), lt.last_txn_date)\n  END AS days_inactive,\n  CASE\n    WHEN lt.last_txn_date IS NULL THEN 'Never Active'\n    ELSE 'Dormant'\n  END AS account_status,\n  CASE\n    WHEN hr.high_risk = 1 THEN 'High-Risk Dormant'\n    ELSE 'Dormant'\n  END AS risk_flag,\n  CASE\n    WHEN hr.high_risk = 1 THEN 1\n    ELSE 0\n  END AS is_high_risk\nFROM datastore.gold.dim_customers dc\nLEFT JOIN (\n  SELECT CUSTOMER_LHID, MAX(PARSED_DATE) AS last_txn_date\n  FROM datastore.gold.fact_transactions\n  WHERE PARSED_DATE IS NOT NULL\n  GROUP BY CUSTOMER_LHID\n) lt ON dc.LHID = lt.CUSTOMER_LHID\nLEFT JOIN (\n  SELECT DISTINCT ft.CUSTOMER_LHID, 1 AS high_risk\n  FROM datastore.gold.fact_transactions ft\n  JOIN datastore.gold.dim_products dp ON ft.PRODUCT_LHID = dp.LHID\n  WHERE dp.PRODUCT_TYPE IN ('CREDIT CARD', 'LOAN')\n) hr ON dc.LHID = hr.CUSTOMER_LHID\nWHERE lt.last_txn_date IS NULL OR lt.last_txn_date < DATE_SUB(CURRENT_DATE(), 90)\n",
+        "dimensions": [
+          {
+            "name": "customer_name",
+            "expr": "customer_name",
+            "displayName": "Customer Name"
+          },
+          {
+            "name": "account_id",
+            "expr": "account_id",
+            "displayName": "Account ID"
+          },
+          {
+            "name": "account_status",
+            "expr": "account_status",
+            "displayName": "Account Status"
+          },
+          {
+            "name": "risk_flag",
+            "expr": "risk_flag",
+            "displayName": "Risk Flag"
+          },
+          {
+            "name": "last_txn_date",
+            "expr": "last_txn_date",
+            "displayName": "Last Transaction Date"
+          }
+        ],
+        "measures": [
+          {
+            "name": "days_inactive",
+            "expr": "AVG(days_inactive)",
+            "displayName": "Avg Days Inactive",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          },
+          {
+            "name": "dormant_count",
+            "expr": "COUNT(*)",
+            "displayName": "Dormant Account Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          },
+          {
+            "name": "high_risk_count",
+            "expr": "SUM(is_high_risk)",
+            "displayName": "High-Risk Dormant Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "kyc_risk_exposure",
+      "displayName": "KYC Risk Exposure",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  kyc_status_group,\n  total_amount,\n  txn_count,\n  ROUND((total_amount / SUM(total_amount) OVER ()) * 100, 2) AS pct_of_total_value,\n  ROUND((txn_count * 100.0 / SUM(txn_count) OVER ()), 2) AS pct_of_txn_count\nFROM (\n  SELECT\n    CASE\n      WHEN UPPER(TRIM(dc.KYC_STATUS)) = 'VERIFIED' THEN 'Verified'\n      WHEN dc.KYC_STATUS IS NULL OR TRIM(dc.KYC_STATUS) = '' THEN 'Unknown'\n      ELSE 'Not Verified'\n    END AS kyc_status_group,\n    SUM(ft.PARSED_AMOUNT) AS total_amount,\n    COUNT(*) AS txn_count\n  FROM datastore.gold.fact_transactions ft\n  LEFT JOIN datastore.gold.dim_customers dc ON ft.CUSTOMER_LHID = dc.LHID\n  WHERE ft.PARSED_AMOUNT IS NOT NULL\n  GROUP BY\n    CASE\n      WHEN UPPER(TRIM(dc.KYC_STATUS)) = 'VERIFIED' THEN 'Verified'\n      WHEN dc.KYC_STATUS IS NULL OR TRIM(dc.KYC_STATUS) = '' THEN 'Unknown'\n      ELSE 'Not Verified'\n    END\n) t\n",
+        "dimensions": [
+          {
+            "name": "kyc_status_group",
+            "expr": "kyc_status_group",
+            "displayName": "KYC Status"
+          }
+        ],
+        "measures": [
+          {
+            "name": "total_amount",
+            "expr": "SUM(total_amount)",
+            "displayName": "Total Transaction Value",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "txn_count",
+            "expr": "SUM(txn_count)",
+            "displayName": "Transaction Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          },
+          {
+            "name": "pct_of_total_value",
+            "expr": "AVG(pct_of_total_value)",
+            "displayName": "% of Total Value",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "pct_of_txn_count",
+            "expr": "AVG(pct_of_txn_count)",
+            "displayName": "% of Total Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "prod_revenue_contribution",
+      "displayName": "Product Revenue Contribution",
+      "config": {
+        "version": "1.1",
+        "source": "WITH max_date AS (\n  SELECT MAX(STD_TRANSACTION_DATE) AS max_dt\n  FROM datastore.gold.fact_transactions\n  WHERE STD_TRANSACTION_DATE IS NOT NULL\n),\nquarter_data AS (\n  SELECT\n    dp.PRODUCT_NAME AS product_name,\n    dp.CATEGORY AS category,\n    CASE\n      WHEN ft.STD_IS_REFUND = true THEN -ft.PARSED_AMOUNT\n      ELSE ft.PARSED_AMOUNT\n    END AS amount,\n    CASE\n      WHEN ft.STD_TRANSACTION_DATE >= DATE_TRUNC('quarter', (SELECT max_dt FROM max_date))\n        AND ft.STD_TRANSACTION_DATE < DATE_TRUNC('quarter', (SELECT max_dt FROM max_date)) + INTERVAL '3' MONTH\n      THEN 'Current Quarter'\n      WHEN ft.STD_TRANSACTION_DATE >= DATE_TRUNC('quarter', (SELECT max_dt FROM max_date)) - INTERVAL '3' MONTH\n        AND ft.STD_TRANSACTION_DATE < DATE_TRUNC('quarter', (SELECT max_dt FROM max_date))\n      THEN 'Prior Quarter'\n      ELSE NULL\n    END AS period\n  FROM datastore.gold.fact_transactions ft\n  JOIN datastore.gold.dim_products dp ON ft.PRODUCT_LHID = dp.LHID\n  WHERE ft.PARSED_AMOUNT IS NOT NULL\n    AND ft.STD_TRANSACTION_DATE IS NOT NULL\n),\naggregated AS (\n  SELECT\n    product_name,\n    category,\n    period,\n    SUM(amount) AS revenue\n  FROM quarter_data\n  WHERE period IS NOT NULL\n  GROUP BY product_name, category, period\n)\nSELECT\n  product_name,\n  category,\n  period,\n  revenue,\n  ROUND(revenue * 100.0 / SUM(revenue) OVER (PARTITION BY period), 2) AS revenue_share_pct\nFROM aggregated\n",
+        "dimensions": [
+          {
+            "name": "product_name",
+            "expr": "product_name",
+            "displayName": "Product Name"
+          },
+          {
+            "name": "category",
+            "expr": "category",
+            "displayName": "Category"
+          },
+          {
+            "name": "period",
+            "expr": "period",
+            "displayName": "Period"
+          }
+        ],
+        "measures": [
+          {
+            "name": "revenue",
+            "expr": "SUM(revenue)",
+            "displayName": "Revenue",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "revenue_share_pct",
+            "expr": "AVG(revenue_share_pct)",
+            "displayName": "Revenue Share %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "refund_rate_prod_branch",
+      "displayName": "Refund Rate by Product Branch",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  dp.PRODUCT_NAME AS product_name,\n  dp.CATEGORY AS product_category,\n  db.BRANCH_NAME AS branch_name,\n  db.REGION AS branch_region,\n  COUNT(*) AS total_txn_count,\n  SUM(CASE WHEN ft.STD_IS_REFUND = true THEN 1 ELSE 0 END) AS refund_count,\n  SUM(ABS(ft.PARSED_AMOUNT)) AS total_value,\n  SUM(CASE WHEN ft.STD_IS_REFUND = true THEN ABS(ft.PARSED_AMOUNT) ELSE 0 END) AS refund_value,\n  ROUND(SUM(CASE WHEN ft.STD_IS_REFUND = true THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS refund_count_pct,\n  ROUND(SUM(CASE WHEN ft.STD_IS_REFUND = true THEN ABS(ft.PARSED_AMOUNT) ELSE 0 END) * 100.0 / NULLIF(SUM(ABS(ft.PARSED_AMOUNT)), 0), 2) AS refund_value_pct\nFROM datastore.gold.fact_transactions ft\nJOIN datastore.gold.dim_products dp ON ft.PRODUCT_LHID = dp.LHID\nJOIN datastore.gold.dim_branches db ON ft.BRANCH_LHID = db.LHID\nWHERE ft.PARSED_AMOUNT IS NOT NULL\nGROUP BY dp.PRODUCT_NAME, dp.CATEGORY, db.BRANCH_NAME, db.REGION\n",
+        "dimensions": [
+          {
+            "name": "product_name",
+            "expr": "product_name",
+            "displayName": "Product Name"
+          },
+          {
+            "name": "product_category",
+            "expr": "product_category",
+            "displayName": "Product Category"
+          },
+          {
+            "name": "branch_name",
+            "expr": "branch_name",
+            "displayName": "Branch Name"
+          },
+          {
+            "name": "branch_region",
+            "expr": "branch_region",
+            "displayName": "Branch Region"
+          }
+        ],
+        "measures": [
+          {
+            "name": "total_txn_count",
+            "expr": "SUM(total_txn_count)",
+            "displayName": "Total Transaction Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          },
+          {
+            "name": "refund_count",
+            "expr": "SUM(refund_count)",
+            "displayName": "Refund Count",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 0.0
+              }
+            }
+          },
+          {
+            "name": "total_value",
+            "expr": "SUM(total_value)",
+            "displayName": "Total Transaction Value",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "refund_value",
+            "expr": "SUM(refund_value)",
+            "displayName": "Refund Value",
+            "format": {
+              "type": "currency",
+              "currencyCode": "USD",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "refund_count_pct",
+            "expr": "AVG(refund_count_pct)",
+            "displayName": "Refund Count Rate %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "refund_value_pct",
+            "expr": "AVG(refund_value_pct)",
+            "displayName": "Refund Value Rate %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "relationshipGraphs": [
+    {
+      "sources": [
+        {
+          "name": "dim_branches",
+          "datasetName": "58129dcd"
+        },
+        {
+          "name": "dim_customers",
+          "datasetName": "f20a078f"
+        },
+        {
+          "name": "dim_products",
+          "datasetName": "a40820de"
+        },
+        {
+          "name": "fact_transactions",
+          "datasetName": "4261c169"
+        },
+        {
+          "name": "Top_5_Customers_by_Net_Transaction_Volume",
+          "datasetName": "top5_cust_netvol"
+        },
+        {
+          "name": "Dormant_Inactive_Accounts",
+          "datasetName": "dormant_accts"
+        },
+        {
+          "name": "KYC_Risk_Exposure",
+          "datasetName": "kyc_risk_exposure"
+        },
+        {
+          "name": "Product_Revenue_Contribution",
+          "datasetName": "prod_revenue_contribution"
+        },
+        {
+          "name": "Refund_Rate_by_Product_Branch",
+          "datasetName": "refund_rate_prod_branch"
+        }
+      ],
+      "relationships": [
+        {
+          "name": "fact_transactions_dim_branches",
+          "from": "fact_transactions",
+          "to": "dim_branches",
+          "on": "`fact_transactions`.`BRANCH_LHID` = `dim_branches`.`LHID`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "fact_transactions_dim_customers",
+          "from": "fact_transactions",
+          "to": "dim_customers",
+          "on": "`fact_transactions`.`CUSTOMER_LHID` = `dim_customers`.`LHID`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "fact_transactions_dim_products",
+          "from": "fact_transactions",
+          "to": "dim_products",
+          "on": "`fact_transactions`.`PRODUCT_LHID` = `dim_products`.`LHID`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "c0eed763",
+      "displayName": "Customers Insights",
+      "layout": [
+        {
+          "widget": {
+            "name": "netvol_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "Top_5_Customers_by_Net_Transaction_Volume__customer_name",
+                      "expression": "`Top_5_Customers_by_Net_Transaction_Volume`.`customer_name`"
+                    },
+                    {
+                      "name": "measure(Top_5_Customers_by_Net_Transaction_Volume__net_volume)",
+                      "expression": "MEASURE(`Top_5_Customers_by_Net_Transaction_Volume`.`net_volume`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Top 5 Customers by Net Transaction Volume"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Top_5_Customers_by_Net_Transaction_Volume__customer_name",
+                  "displayName": "customer_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Top_5_Customers_by_Net_Transaction_Volume__net_volume)",
+                  "displayName": "net_volume",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Top_5_Customers_by_Net_Transaction_Volume__customer_name",
+                  "displayName": "customer_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "095a87a3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "Dormant_Inactive_Accounts__risk_flag",
+                      "expression": "`Dormant_Inactive_Accounts`.`risk_flag`"
+                    },
+                    {
+                      "name": "measure(Dormant_Inactive_Accounts__dormant_count)",
+                      "expression": "MEASURE(`Dormant_Inactive_Accounts`.`dormant_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Dormant Accounts by Risk Level"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Dormant_Inactive_Accounts__risk_flag",
+                  "displayName": "Risk Flag",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Dormant_Inactive_Accounts__dormant_count)",
+                  "displayName": "Dormant Account Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Dormant_Inactive_Accounts__risk_flag",
+                  "displayName": "Risk Flag",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "1e5244f3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "KYC_Risk_Exposure__kyc_status_group",
+                      "expression": "`KYC_Risk_Exposure`.`kyc_status_group`"
+                    },
+                    {
+                      "name": "measure(KYC_Risk_Exposure__total_amount)",
+                      "expression": "MEASURE(`KYC_Risk_Exposure`.`total_amount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "KYC Risk Exposure – Transaction Value by KYC Status"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "KYC_Risk_Exposure__kyc_status_group",
+                  "displayName": "KYC Status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(KYC_Risk_Exposure__total_amount)",
+                  "displayName": "Total Transaction Value",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "KYC_Risk_Exposure__kyc_status_group",
+                  "displayName": "KYC Status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "f91511ea",
+      "displayName": "Products Insights",
+      "layout": [
+        {
+          "widget": {
+            "name": "6928300f",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "Product_Revenue_Contribution__period",
+                      "expression": "`Product_Revenue_Contribution`.`period`"
+                    },
+                    {
+                      "name": "Product_Revenue_Contribution__category",
+                      "expression": "`Product_Revenue_Contribution`.`category`"
+                    },
+                    {
+                      "name": "measure(Product_Revenue_Contribution__revenue)",
+                      "expression": "MEASURE(`Product_Revenue_Contribution`.`revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Product Revenue Contribution by Category (Current vs Prior Quarter)"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Product_Revenue_Contribution__category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Product_Revenue_Contribution__revenue)",
+                  "displayName": "Revenue",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Product_Revenue_Contribution__period",
+                  "displayName": "Period",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "113a585c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "Refund_Rate_by_Product_Branch__branch_region",
+                      "expression": "`Refund_Rate_by_Product_Branch`.`branch_region`"
+                    },
+                    {
+                      "name": "Refund_Rate_by_Product_Branch__product_name",
+                      "expression": "`Refund_Rate_by_Product_Branch`.`product_name`"
+                    },
+                    {
+                      "name": "measure(Refund_Rate_by_Product_Branch__refund_count_pct)",
+                      "expression": "MEASURE(`Refund_Rate_by_Product_Branch`.`refund_count_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Refund Rate by Branch (Count % of Total Transactions)",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Refund_Rate_by_Product_Branch__product_name",
+                  "displayName": "Branch",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Refund_Rate_by_Product_Branch__refund_count_pct)",
+                  "displayName": "Refund Count Rate %",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Refund_Rate_by_Product_Branch__branch_region",
+                  "displayName": "Region",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
